@@ -65,58 +65,7 @@ export default function TemplateRow({ template, onUseTemplate, onEditTemplate, o
         </button>
 
         <div className="flex items-center gap-1">
-          <span className="hidden group-hover:inline text-xs text-zinc-500 dark:text-zinc-400 px-1">Use</span>
-
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                setShowMenu(!showMenu)
-              }}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-opacity"
-            >
-              <MoreHorizontal className="h-3 w-3" />
-            </button>
-
-            <AnimatePresence>
-              {showMenu && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="absolute right-0 top-full mt-1 w-36 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900 z-[100]"
-                >
-                  <button
-                    onClick={handleUse}
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2"
-                  >
-                    <Copy className="h-3 w-3" />
-                    Use Template
-                  </button>
-                  <button
-                    onClick={handleEdit}
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2"
-                  >
-                    <Edit3 className="h-3 w-3" />
-                    Edit
-                  </button>
-                  <button
-                    onClick={handleRename}
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    className="w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    Delete
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          <span className="hidden group-hover:inline text-xs text-zinc-500 dark:text-zinc-400 px-1">Click to start research</span>
         </div>
       </div>
     </div>

@@ -28,10 +28,13 @@ class Settings:
     CORS_ORIGINS: list = [
         "http://localhost:3000",  # Next.js dev server
         "http://127.0.0.1:3000",
-        "https://*.vercel.app",  # Vercel deployments
-        "https://*.github.dev",  # Codespaces
-        "https://*.githubpreview.dev",  # Codespaces preview
     ]
+    
+    # Codespaces/Vercel support via regex
+    CORS_ALLOW_ORIGIN_REGEX: Optional[str] = os.getenv(
+        "CORS_ALLOW_ORIGIN_REGEX",
+        r"https://.*\.(vercel\.app|github\.dev|githubpreview\.dev)"
+    )
     
     # Azure OpenAI (for analysis and report generation)
     AZURE_AI_API_KEY: Optional[str] = os.getenv("AZURE_AI_API_KEY")

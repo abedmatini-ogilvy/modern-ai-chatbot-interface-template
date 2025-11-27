@@ -78,37 +78,25 @@ export default function Sidebar({
   }
 
   const handleCreateTemplate = (templateData) => {
-    if (editingTemplate) {
-      const updatedTemplates = templates.map((t) =>
-        t.id === editingTemplate.id ? { ...templateData, id: editingTemplate.id } : t,
-      )
-      setTemplates(updatedTemplates)
-      setEditingTemplate(null)
-    } else {
-      const newTemplate = {
-        ...templateData,
-        id: Date.now().toString(),
-      }
-      setTemplates([...templates, newTemplate])
-    }
+    // Templates are now read-only from API
+    // Creating/editing templates disabled
     setShowCreateTemplateModal(false)
+    setEditingTemplate(null)
   }
 
   const handleEditTemplate = (template) => {
-    setEditingTemplate(template)
-    setShowCreateTemplateModal(true)
+    // Templates are now read-only from API
+    // Editing disabled
   }
 
   const handleRenameTemplate = (templateId, newName) => {
-    const updatedTemplates = templates.map((t) =>
-      t.id === templateId ? { ...t, name: newName, updatedAt: new Date().toISOString() } : t,
-    )
-    setTemplates(updatedTemplates)
+    // Templates are now read-only from API
+    // Renaming disabled
   }
 
   const handleDeleteTemplate = (templateId) => {
-    const updatedTemplates = templates.filter((t) => t.id !== templateId)
-    setTemplates(updatedTemplates)
+    // Templates are now read-only from API
+    // Deleting disabled
   }
 
   const handleUseTemplate = (template) => {
@@ -338,18 +326,11 @@ export default function Sidebar({
 
               <SidebarSection
                 icon={<FileText className="h-4 w-4" />} // Replaced StarOff with FileText for better template metaphor
-                title="TEMPLATES"
+                title="RESEARCH QUESTIONS"
                 collapsed={collapsed.templates}
                 onToggle={() => setCollapsed((s) => ({ ...s, templates: !s.templates }))}
               >
                 <div className="-mx-1">
-                  <button
-                    onClick={() => setShowCreateTemplateModal(true)}
-                    className="mb-2 inline-flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  >
-                    <Plus className="h-4 w-4" /> Create template
-                  </button>
-
                   {(Array.isArray(templates) ? templates : []).map((template) => (
                     <TemplateRow
                       key={template.id}
@@ -363,7 +344,7 @@ export default function Sidebar({
 
                   {(!templates || templates.length === 0) && (
                     <div className="select-none rounded-lg border border-dashed border-zinc-200 px-3 py-3 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                      No templates yet. Create your first prompt template.
+                      Loading research questions...
                     </div>
                   )}
                 </div>

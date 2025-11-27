@@ -51,6 +51,13 @@ const ChatPane = forwardRef(function ChatPane(
   const tags = ["Certified", "Personalized", "Experienced", "Helpful"]
   const messages = Array.isArray(conversation.messages) ? conversation.messages : []
   const count = messages.length || conversation.messageCount || 0
+  
+  console.log('🎨 ChatPane render:', { 
+    conversationId: conversation?.id, 
+    messageCount: messages.length,
+    hasMessages: messages.length > 0,
+    messages: messages.slice(-3).map(m => ({ id: m.id, role: m.role, preview: m.content.slice(0, 30) }))
+  })
 
   function startEdit(m) {
     setEditingId(m.id)

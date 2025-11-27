@@ -7,7 +7,9 @@ import Header from "./Header"
 import ChatPane from "./ChatPane"
 import GhostIconButton from "./GhostIconButton"
 import ThemeToggle from "./ThemeToggle"
-import { INITIAL_CONVERSATIONS, INITIAL_TEMPLATES, INITIAL_FOLDERS } from "./mockData"
+import { INITIAL_CONVERSATIONS, INITIAL_FOLDERS } from "./mockData"
+import { useResearchQuestions, useResearchSession } from "@/lib/use-research"
+import { ResearchPhase } from "@/lib/api-client"
 
 export default function AIAssistantUI() {
   const [theme, setTheme] = useState(() => {
@@ -73,9 +75,86 @@ export default function AIAssistantUI() {
 
   const [conversations, setConversations] = useState(INITIAL_CONVERSATIONS)
   const [selectedId, setSelectedId] = useState(null)
-  const [templates, setTemplates] = useState(INITIAL_TEMPLATES)
   const [folders, setFolders] = useState(INITIAL_FOLDERS)
-
+  
+  // Track which conversation is running research (using ref to avoid stale closure)
+  const activeResearchConvIdRef = useRef(null)
+  
+  // Load research questions from API
+  const { questions: apiQuestions, loading: questionsLoading } = useResearchQuestions()
+  
+  // Convert API questions to template format
+  const templates = useMemo(() => {
+    if (!apiQuestions || apiQuestions.length === 0) return []
+    return apiQuestions.map(q => ({
+      id: q.id,
+      name: q.title,
+      content: q.question,
+      snippet: q.focus,
+      search_terms: q.search_terms,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }))
+  }, [apiQuestions])
+  
+  // Research session management
+  const {
+    sessionId: currentSessionId,
+    status: researchStatus,
+    result: researchResult,
+    error: researchError,
+    isRunning: isResearching,
+    progressPercentage,
+    currentAgent,
+    start: startResearch,
+    reset: resetResearch,
+  } = useResearchSession({
+    onProgress: (status) => {
+      // Add progress updates as messages to the conversation that started the research
+      const convId = activeResearchConvIdRef.current
+      if (convId && status.progress_updates && status.progress_updates.length > 0) {
+        const latestUpdate = status.progress_updates[status.progress_updates.length - 1]
+        updateConversationWithProgress(convId, latestUpdate)
+      }
+    },
+    onComplete: (result) => {
+      // Add final result as message to the conversation that started the research
+      const convId = activeResearchConvIdRef.current
+      console.log('✅ Research onComplete called:', { convId, activeResearchConvIdRef, result })
+      if (convId) {
+        updateConversationWithResult(convId, result)
+        // Switch to the conversation with results if not already viewing it
+        setSelectedId(convId)
+      }
+      setIsThinking(false)
+      setThinkingConvId(null)
+      activeResearchConvIdRef.current = null
+    },
+    onError: (error) => {
+      // Add error message to conversation that started the research
+      const convId = activeResearchConvIdRef.current
+      if (convId) {
+        const errorMsg = {
+          id: Math.random().toString(36).slice(2),
+          role: "assistant",
+          content: `❌ Research failed: ${error.message}`,
+          createdAt: new Date().toISOString(),
+          isError: true,
+        }
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== convId) return c
+            const msgs = [...(c.messages || []), errorMsg]
+            return { ...c, messages: msgs, updatedAt: new Date().toISOString() }
+          })
+        )
+      }
+      setIsThinking(false)
+      setThinkingConvId(null)
+      activeResearchConvIdRef.current = null
+    },
+  })
+  
   const [query, setQuery] = useState("")
   const searchRef = useRef(null)
 
@@ -126,6 +205,115 @@ export default function AIAssistantUI() {
     return map
   }, [conversations, folders])
 
+  // Helper: Update conversation with progress message
+  function updateConversationWithProgress(convId, progressUpdate) {
+    const progressMsg = {
+      id: `progress-${progressUpdate.timestamp}`,
+      role: "assistant",
+      content: progressUpdate.message,
+      createdAt: progressUpdate.timestamp,
+      isProgress: true,
+      agent: progressUpdate.agent,
+      status: progressUpdate.status,
+    }
+    
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== convId) return c
+        // Check if this progress message already exists
+        const exists = (c.messages || []).some(m => m.id === progressMsg.id)
+        if (exists) return c
+        
+        const msgs = [...(c.messages || []), progressMsg]
+        return {
+          ...c,
+          messages: msgs,
+          updatedAt: new Date().toISOString(),
+          preview: progressMsg.content.slice(0, 80),
+        }
+      })
+    )
+  }
+  
+  // Helper: Update conversation with final result
+  function updateConversationWithResult(convId, result) {
+    console.log('📊 updateConversationWithResult called:', { convId, result })
+    const now = new Date().toISOString()
+    const messages = []
+    
+    // Summary message
+    const summaryMsg = {
+      id: Math.random().toString(36).slice(2),
+      role: "assistant",
+      content: `✅ **Research Complete!**\n\nCollected **${result.total_data_points}** data points in **${result.execution_time_seconds.toFixed(1)}s**\n\n- Twitter: ${result.data_collected.social_media.twitter.total_results}\n- TikTok: ${result.data_collected.social_media.tiktok.total_results}\n- Reddit: ${result.data_collected.social_media.reddit.total_results}\n- Web: ${result.data_collected.web_intelligence.total_results}`,
+      createdAt: now,
+      isResult: true,
+    }
+    messages.push(summaryMsg)
+    console.log('📝 Created summary message:', summaryMsg)
+    
+    // Executive Summary
+    if (result.executive_summary) {
+      messages.push({
+        id: Math.random().toString(36).slice(2),
+        role: "assistant",
+        content: `## Executive Summary\n\n${result.executive_summary}`,
+        createdAt: now,
+        isResult: true,
+      })
+    }
+    
+    // Key Findings
+    if (result.key_findings && result.key_findings.length > 0) {
+      messages.push({
+        id: Math.random().toString(36).slice(2),
+        role: "assistant",
+        content: `## Key Findings\n\n${result.key_findings.map((f, i) => `${i + 1}. ${f}`).join('\n')}`,
+        createdAt: now,
+        isResult: true,
+      })
+    }
+    
+    // Recommendations
+    if (result.recommendations && result.recommendations.length > 0) {
+      messages.push({
+        id: Math.random().toString(36).slice(2),
+        role: "assistant",
+        content: `## Recommendations\n\n${result.recommendations.map((r, i) => `${i + 1}. ${r}`).join('\n')}`,
+        createdAt: now,
+        isResult: true,
+      })
+    }
+    
+    // Full Report (if no structured data)
+    if (!result.executive_summary && result.report) {
+      messages.push({
+        id: Math.random().toString(36).slice(2),
+        role: "assistant",
+        content: result.report,
+        createdAt: now,
+        isResult: true,
+      })
+    }
+    
+    setConversations((prev) => {
+      console.log('📦 Updating conversations state, adding', messages.length, 'messages to conversation', convId)
+      const updated = prev.map((c) => {
+        if (c.id !== convId) return c
+        const msgs = [...(c.messages || []), ...messages]
+        console.log('✨ Updated conversation now has', msgs.length, 'messages')
+        return {
+          ...c,
+          messages: msgs,
+          updatedAt: now,
+          messageCount: msgs.length,
+          preview: messages[0].content.slice(0, 80),
+        }
+      })
+      return updated
+    })
+  }
+
   function togglePin(id) {
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)))
   }
@@ -154,7 +342,7 @@ export default function AIAssistantUI() {
     setFolders((prev) => [...prev, { id: Math.random().toString(36).slice(2), name }])
   }
 
-  function sendMessage(convId, content) {
+  async function sendMessage(convId, content) {
     if (!content.trim()) return
     const now = new Date().toISOString()
     const userMsg = { id: Math.random().toString(36).slice(2), role: "user", content, createdAt: now }
@@ -176,32 +364,53 @@ export default function AIAssistantUI() {
     setIsThinking(true)
     setThinkingConvId(convId)
 
-    const currentConvId = convId
-    setTimeout(() => {
-      // Always clear thinking state and generate response for this specific conversation
-      setIsThinking(false)
-      setThinkingConvId(null)
-      setConversations((prev) =>
-        prev.map((c) => {
-          if (c.id !== currentConvId) return c
-          const ack = `Got it — I'll help with that.`
-          const asstMsg = {
-            id: Math.random().toString(36).slice(2),
-            role: "assistant",
-            content: ack,
-            createdAt: new Date().toISOString(),
-          }
-          const msgs = [...(c.messages || []), asstMsg]
-          return {
-            ...c,
-            messages: msgs,
-            updatedAt: new Date().toISOString(),
-            messageCount: msgs.length,
-            preview: asstMsg.content.slice(0, 80),
-          }
-        }),
-      )
-    }, 2000)
+    // Check if this looks like a research question
+    const isResearchQuestion = content.toLowerCase().includes('trend') || 
+                              content.toLowerCase().includes('research') ||
+                              content.includes('?')
+    
+    if (isResearchQuestion && apiQuestions && apiQuestions.length > 0) {
+      // Start actual research
+      setSelectedId(convId)
+      try {
+        await startResearch({
+          question: content,
+          search_query: content.split(/[?.!]/)[0].trim().slice(0, 100),
+          conversation_id: convId,
+        })
+      } catch (error) {
+        console.error('Research failed:', error)
+        setIsThinking(false)
+        setThinkingConvId(null)
+      }
+    } else {
+      // Default mock response for non-research messages
+      const currentConvId = convId
+      setTimeout(() => {
+        setIsThinking(false)
+        setThinkingConvId(null)
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== currentConvId) return c
+            const ack = `Got it — I'll help with that.`
+            const asstMsg = {
+              id: Math.random().toString(36).slice(2),
+              role: "assistant",
+              content: ack,
+              createdAt: new Date().toISOString(),
+            }
+            const msgs = [...(c.messages || []), asstMsg]
+            return {
+              ...c,
+              messages: msgs,
+              updatedAt: new Date().toISOString(),
+              messageCount: msgs.length,
+              preview: asstMsg.content.slice(0, 80),
+            }
+          }),
+        )
+      }, 1000)
+    }
   }
 
   function editMessage(convId, messageId, newContent) {
@@ -233,11 +442,54 @@ export default function AIAssistantUI() {
     setThinkingConvId(null)
   }
 
-  function handleUseTemplate(template) {
-    // This will be passed down to the Composer component
-    // The Composer will handle inserting the template content
-    if (composerRef.current) {
-      composerRef.current.insertTemplate(template.content)
+  async function handleUseTemplate(template) {
+    // Create a new conversation for this research
+    const convId = Math.random().toString(36).slice(2)
+    const now = new Date().toISOString()
+    
+    const newConv = {
+      id: convId,
+      title: template.name,
+      updatedAt: now,
+      messageCount: 0,
+      preview: "Starting research...",
+      pinned: false,
+      folder: "Work Projects",
+      messages: [
+        {
+          id: Math.random().toString(36).slice(2),
+          role: "user",
+          content: template.content,
+          createdAt: now,
+        },
+        {
+          id: Math.random().toString(36).slice(2),
+          role: "assistant",
+          content: "🔬 Starting research...",
+          createdAt: now,
+        },
+      ],
+    }
+    
+    setConversations((prev) => [newConv, ...prev])
+    setSelectedId(convId)
+    setSidebarOpen(false)
+    
+    // Start research
+    setIsThinking(true)
+    setThinkingConvId(convId)
+    activeResearchConvIdRef.current = convId
+    
+    try {
+      await startResearch({
+        question_id: template.id,
+        conversation_id: convId,
+      })
+    } catch (error) {
+      console.error('Failed to start research:', error)
+      setIsThinking(false)
+      setThinkingConvId(null)
+      activeResearchConvIdRef.current = null
     }
   }
 
@@ -289,7 +541,6 @@ export default function AIAssistantUI() {
           createFolder={createFolder}
           createNewChat={createNewChat}
           templates={templates}
-          setTemplates={setTemplates}
           onUseTemplate={handleUseTemplate}
         />
 
