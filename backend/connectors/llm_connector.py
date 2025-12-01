@@ -77,11 +77,13 @@ class GeminiProvider(BaseLLMProvider):
     Google Gemini provider.
     
     Free tier: 60 requests/minute, 1M tokens/day
+    Models: gemini-2.0-flash (fast), gemini-2.5-pro (powerful)
     """
     
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_AI_API_KEY")
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-pro")
+        # Use gemini-2.0-flash - fast and free
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         self._client = None
         self.logger = logging.getLogger("GeminiProvider")
     
