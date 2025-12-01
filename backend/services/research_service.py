@@ -489,24 +489,39 @@ Use professional, clear language suitable for marketing executives.
         return "\n".join(parts)
     
     def _create_data_summary(self, all_data: Dict) -> Dict[str, Any]:
-        """Create summary of collected data"""
-        summary = {}
-        
-        if "social_media" in all_data:
-            summary["social_media"] = {
-                platform: {"total_results": data["total_results"]}
-                for platform, data in all_data["social_media"].items()
+        """Create summary of collected data with all expected fields"""
+        # Always include all expected platforms with defaults
+        # This ensures frontend doesn't crash on missing fields
+        summary = {
+            "social_media": {
+                "twitter": {"total_results": 0},
+                "tiktok": {"total_results": 0},
+                "reddit": {"total_results": 0}
+            },
+            "web_intelligence": {
+                "total_results": 0
+            },
+            "trends": {
+                "search_volume_index": 0,
+                "trending_status": "unknown"
             }
+        }
+        
+        # Override with actual data where available
+        if "social_media" in all_data:
+            for platform, data in all_data["social_media"].items():
+                if platform in summary["social_media"]:
+                    summary["social_media"][platform] = {"total_results": data.get("total_results", 0)}
         
         if "trends" in all_data:
             summary["trends"] = {
-                "search_volume_index": all_data["trends"]["search_volume_index"],
-                "trending_status": all_data["trends"]["trending_status"]
+                "search_volume_index": all_data["trends"].get("search_volume_index", 0),
+                "trending_status": all_data["trends"].get("trending_status", "unknown")
             }
         
         if "web_intelligence" in all_data:
             summary["web_intelligence"] = {
-                "total_results": all_data["web_intelligence"]["total_results"]
+                "total_results": all_data["web_intelligence"].get("total_results", 0)
             }
         
         return summary

@@ -241,11 +241,19 @@ export default function AIAssistantUI() {
     const now = new Date().toISOString()
     const messages = []
     
+    // Safely extract data with defaults
+    const socialMedia = result.data_collected?.social_media || {}
+    const twitterCount = socialMedia.twitter?.total_results ?? 0
+    const tiktokCount = socialMedia.tiktok?.total_results ?? 0
+    const redditCount = socialMedia.reddit?.total_results ?? 0
+    const webCount = result.data_collected?.web_intelligence?.total_results ?? 0
+    const executionTime = result.execution_time_seconds?.toFixed(1) ?? '?'
+    
     // Summary message
     const summaryMsg = {
       id: Math.random().toString(36).slice(2),
       role: "assistant",
-      content: `✅ **Research Complete!**\n\nCollected **${result.total_data_points}** data points in **${result.execution_time_seconds.toFixed(1)}s**\n\n- Twitter: ${result.data_collected.social_media.twitter.total_results}\n- TikTok: ${result.data_collected.social_media.tiktok.total_results}\n- Reddit: ${result.data_collected.social_media.reddit.total_results}\n- Web: ${result.data_collected.web_intelligence.total_results}`,
+      content: `✅ **Research Complete!**\n\nCollected **${result.total_data_points || 0}** data points in **${executionTime}s**\n\n- Twitter: ${twitterCount}\n- TikTok: ${tiktokCount}\n- Reddit: ${redditCount}\n- Web: ${webCount}`,
       createdAt: now,
       isResult: true,
     }
