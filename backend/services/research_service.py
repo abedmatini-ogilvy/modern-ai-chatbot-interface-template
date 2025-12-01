@@ -219,8 +219,23 @@ class ResearchService:
             if isinstance(web_data, dict) and web_data:
                 all_data["web_intelligence"] = web_data
             
+            # Report summary of failed APIs at end of data collection
+            if failed_apis:
+                unique_failed = list(set(failed_apis))  # Remove duplicates
+                failed_summary = f"""
+📊 **Data Collection Summary**
+   ✅ Successful: {len(all_data)} source(s)
+   ❌ Failed: {len(unique_failed)} API(s) - {', '.join(unique_failed)}
+"""
+                add_progress(ResearchPhase.DATA_COLLECTION, "Research Orchestrator", AgentStatus.COMPLETED, failed_summary)
+            
             if not all_data:
-                raise Exception("No data collected from any API")
+                # All APIs failed - provide detailed error
+                failed_list = list(set(failed_apis)) if failed_apis else ["All APIs"]
+                error_msg = f"No data collected. Failed APIs: {', '.join(failed_list)}. Please check API configurations."
+                add_progress(ResearchPhase.DATA_COLLECTION, "Research Orchestrator", AgentStatus.FAILED, 
+                           f"❌ {error_msg}")
+                raise Exception(error_msg)
             
             add_progress(ResearchPhase.DATA_COLLECTION, "Research Orchestrator", AgentStatus.COMPLETED,
                         f"✅ Phase 1 Complete: Data collected from {len(all_data)} source(s)")
@@ -244,7 +259,7 @@ class ResearchService:
             add_progress(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
                         "📄 Generating comprehensive report...")
             
-            report = await self._generate_report(question, all_data, insights, add_progress)
+            report = await self._generate_report(question, all_data, insights, add_progress, failed_apis)
             
             if not report:
                 raise Exception("Report generation failed")
@@ -294,7 +309,7 @@ class ResearchService:
             )
     
     async def _collect_social_media_data(self, query: str, max_results: int, progress_callback, failed_apis: List[str]) -> Dict:
-        """Collect data from social media platforms"""
+        """Collect data from social media platforms - REAL DATA ONLY, no mocks"""
         results = {}
         
         # Twitter/X
@@ -304,17 +319,42 @@ class ResearchService:
             if hasattr(self.apis["twitter"], 'available') and not self.apis["twitter"].available:
                 failed_apis.append("Twitter/X")
                 progress_callback(ResearchPhase.DATA_COLLECTION, "Twitter Intelligence Agent", AgentStatus.FAILED,
-                                "❌ Twitter API not configured")
+                                "❌ Twitter/X API: Not configured - missing API credentials")
             else:
                 twitter_data = self.apis["twitter"].search_tweets(query, max_results=max_results)
-                if twitter_data:
-                    results["twitter"] = twitter_data
-                    progress_callback(ResearchPhase.DATA_COLLECTION, "Twitter Intelligence Agent", AgentStatus.COMPLETED,
-                                    f"✅ Found {twitter_data['total_results']} tweets")
+                if twitter_data and twitter_data.get('total_results', 0) > 0:
+                    # Check if this is real data (not mock) - check both top-level and in metrics
+                    is_mock = (
+                        twitter_data.get('connector_status') == 'mock' or 
+                        twitter_data.get('data_source') == 'mock' or
+                        twitter_data.get('metrics', {}).get('data_source') == 'mock'
+                    )
+                    if is_mock:
+                        failed_apis.append("Twitter/X")
+                        progress_callback(ResearchPhase.DATA_COLLECTION, "Twitter Intelligence Agent", AgentStatus.FAILED,
+                                        "❌ Twitter/X API: No real data available (API returned mock data)")
+                    else:
+                        results["twitter"] = twitter_data
+                        # Detailed success message
+                        sentiment = twitter_data.get('metrics', {}).get('sentiment_breakdown', {})
+                        sample_tweet = ""
+                        if twitter_data.get('tweets') and len(twitter_data['tweets']) > 0:
+                            sample_tweet = twitter_data['tweets'][0].get('text', '')[:80] + "..."
+                        
+                        detail_msg = f"""✅ Twitter/X Intelligence Agent
+   - Tweets found: {twitter_data['total_results']}
+   - Sentiment: {sentiment.get('positive', 0)}% positive, {sentiment.get('neutral', 0)}% neutral, {sentiment.get('negative', 0)}% negative
+   - Sample: "{sample_tweet}" """
+                        progress_callback(ResearchPhase.DATA_COLLECTION, "Twitter Intelligence Agent", AgentStatus.COMPLETED, detail_msg)
+                else:
+                    failed_apis.append("Twitter/X")
+                    progress_callback(ResearchPhase.DATA_COLLECTION, "Twitter Intelligence Agent", AgentStatus.FAILED,
+                                    "❌ Twitter/X API: No results found for this query")
         except Exception as e:
             failed_apis.append("Twitter/X")
+            error_reason = self._parse_api_error(str(e), "Twitter")
             progress_callback(ResearchPhase.DATA_COLLECTION, "Twitter Intelligence Agent", AgentStatus.FAILED,
-                            f"⚠️ Twitter collection failed: {str(e)}")
+                            f"❌ Twitter/X API Failed\n   - Error: {error_reason}")
         
         # TikTok
         progress_callback(ResearchPhase.DATA_COLLECTION, "TikTok Intelligence Agent", AgentStatus.RUNNING,
@@ -323,17 +363,37 @@ class ResearchService:
             if hasattr(self.apis["tiktok"], 'available') and not self.apis["tiktok"].available:
                 failed_apis.append("TikTok")
                 progress_callback(ResearchPhase.DATA_COLLECTION, "TikTok Intelligence Agent", AgentStatus.FAILED,
-                                "❌ TikTok API not configured")
+                                "❌ TikTok API: Not configured - missing API credentials")
             else:
                 tiktok_data = self.apis["tiktok"].search_videos(query, max_results=max_results)
-                if tiktok_data:
-                    results["tiktok"] = tiktok_data
-                    progress_callback(ResearchPhase.DATA_COLLECTION, "TikTok Intelligence Agent", AgentStatus.COMPLETED,
-                                    f"✅ Found {tiktok_data['total_results']} videos")
+                if tiktok_data and tiktok_data.get('total_results', 0) > 0:
+                    # Check if this is real data (not mock) - check both top-level and in metrics
+                    is_mock = (
+                        tiktok_data.get('connector_status') == 'mock' or 
+                        tiktok_data.get('data_source') == 'mock' or
+                        tiktok_data.get('metrics', {}).get('data_source') == 'mock'
+                    )
+                    if is_mock:
+                        failed_apis.append("TikTok")
+                        progress_callback(ResearchPhase.DATA_COLLECTION, "TikTok Intelligence Agent", AgentStatus.FAILED,
+                                        "❌ TikTok API: No real data available (API returned mock data)")
+                    else:
+                        results["tiktok"] = tiktok_data
+                        total_views = tiktok_data.get('metrics', {}).get('total_views', 0)
+                        detail_msg = f"""✅ TikTok Intelligence Agent
+   - Videos found: {tiktok_data['total_results']}
+   - Total views: {total_views:,}
+   - Avg engagement: {tiktok_data.get('metrics', {}).get('avg_engagement', 'N/A')}"""
+                        progress_callback(ResearchPhase.DATA_COLLECTION, "TikTok Intelligence Agent", AgentStatus.COMPLETED, detail_msg)
+                else:
+                    failed_apis.append("TikTok")
+                    progress_callback(ResearchPhase.DATA_COLLECTION, "TikTok Intelligence Agent", AgentStatus.FAILED,
+                                    "❌ TikTok API: No results found for this query")
         except Exception as e:
             failed_apis.append("TikTok")
+            error_reason = self._parse_api_error(str(e), "TikTok")
             progress_callback(ResearchPhase.DATA_COLLECTION, "TikTok Intelligence Agent", AgentStatus.FAILED,
-                            f"⚠️ TikTok collection failed: {str(e)}")
+                            f"❌ TikTok API Failed\n   - Error: {error_reason}")
             logger.error(f"TikTok collection failed: {e}", exc_info=True)
         
         # Reddit
@@ -343,81 +403,171 @@ class ResearchService:
             if hasattr(self.apis["reddit"], 'available') and not self.apis["reddit"].available:
                 failed_apis.append("Reddit")
                 progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.FAILED,
-                                "❌ Reddit API not configured")
+                                "❌ Reddit API: Not configured - missing API credentials")
                 logger.warning("Reddit API not configured/available")
             else:
                 logger.info(f"Calling Reddit API with query: {query}")
                 reddit_data = self.apis["reddit"].search_posts(query, max_results=max_results)
                 logger.info(f"Reddit returned: {reddit_data.get('total_results', 0) if reddit_data else 0} results")
-                if reddit_data:
-                    results["reddit"] = reddit_data
-                    progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.COMPLETED,
-                                    f"✅ Found {reddit_data['total_results']} posts")
+                if reddit_data and reddit_data.get('total_results', 0) > 0:
+                    # Check if this is real data (not mock) - check both top-level and in metrics
+                    is_mock = (
+                        reddit_data.get('connector_status') == 'mock' or 
+                        reddit_data.get('data_source') == 'mock' or
+                        reddit_data.get('metrics', {}).get('data_source') == 'mock'
+                    )
+                    if is_mock:
+                        failed_apis.append("Reddit")
+                        progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.FAILED,
+                                        "❌ Reddit API: No real data available (API returned mock data)")
+                    else:
+                        results["reddit"] = reddit_data
+                        top_subs = reddit_data.get('metrics', {}).get('top_subreddits', [])[:3]
+                        sample_post = ""
+                        if reddit_data.get('posts') and len(reddit_data['posts']) > 0:
+                            sample_post = reddit_data['posts'][0].get('title', '')[:60] + "..."
+                        
+                        detail_msg = f"""✅ Reddit Intelligence Agent
+   - Posts found: {reddit_data['total_results']}
+   - Top subreddits: {', '.join(top_subs) if top_subs else 'N/A'}
+   - Total comments: {reddit_data.get('metrics', {}).get('total_comments', 'N/A')}
+   - Sample: "{sample_post}" """
+                        progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.COMPLETED, detail_msg)
                 else:
+                    failed_apis.append("Reddit")
+                    progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.FAILED,
+                                    "❌ Reddit API: No results found for this query")
                     logger.warning("Reddit returned empty/None data")
         except Exception as e:
             failed_apis.append("Reddit")
+            error_reason = self._parse_api_error(str(e), "Reddit")
             progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.FAILED,
-                            f"⚠️ Reddit collection failed: {str(e)}")
+                            f"❌ Reddit API Failed\n   - Error: {error_reason}")
             logger.error(f"Reddit collection failed: {e}", exc_info=True)
         
         return results
     
     async def _collect_trends_data(self, query: str, progress_callback, failed_apis: List[str]) -> Optional[Dict]:
-        """Collect Google Trends data"""
+        """Collect Google Trends data - REAL DATA ONLY, no mocks"""
         progress_callback(ResearchPhase.DATA_COLLECTION, "Trends Analysis Agent", AgentStatus.RUNNING,
                          "📈 Analyzing Google Trends...")
         try:
             if hasattr(self.apis["google_trends"], 'available') and not self.apis["google_trends"].available:
                 failed_apis.append("Google Trends")
                 progress_callback(ResearchPhase.DATA_COLLECTION, "Trends Analysis Agent", AgentStatus.FAILED,
-                                "❌ Google Trends not configured")
+                                "❌ Google Trends API: Not configured")
                 return None
             
             trends_data = self.apis["google_trends"].get_trends(query)
             if trends_data:
-                progress_callback(ResearchPhase.DATA_COLLECTION, "Trends Analysis Agent", AgentStatus.COMPLETED,
-                                f"✅ Search volume index: {trends_data['search_volume_index']}")
+                # Check if this is real data (not mock) - check both top-level and in metrics
+                is_mock = (
+                    trends_data.get('connector_status') == 'mock' or 
+                    trends_data.get('data_source') == 'mock' or
+                    trends_data.get('metrics', {}).get('data_source') == 'mock'
+                )
+                if is_mock:
+                    failed_apis.append("Google Trends")
+                    progress_callback(ResearchPhase.DATA_COLLECTION, "Trends Analysis Agent", AgentStatus.FAILED,
+                                    "❌ Google Trends API: No real data available (API returned mock data)")
+                    return None
+                
+                trending_status = trends_data.get('trending_status', 'stable')
+                related_queries = trends_data.get('related_queries', [])[:3]
+                
+                detail_msg = f"""✅ Google Trends Analysis Agent
+   - Search volume index: {trends_data['search_volume_index']}
+   - Trending status: {trending_status}
+   - Related queries: {', '.join(related_queries) if related_queries else 'N/A'}"""
+                progress_callback(ResearchPhase.DATA_COLLECTION, "Trends Analysis Agent", AgentStatus.COMPLETED, detail_msg)
                 return trends_data
             
             failed_apis.append("Google Trends")
+            progress_callback(ResearchPhase.DATA_COLLECTION, "Trends Analysis Agent", AgentStatus.FAILED,
+                            "❌ Google Trends API: No data returned for this query")
             return None
             
         except Exception as e:
             failed_apis.append("Google Trends")
+            error_reason = self._parse_api_error(str(e), "Google Trends")
             progress_callback(ResearchPhase.DATA_COLLECTION, "Trends Analysis Agent", AgentStatus.FAILED,
-                            f"⚠️ Trends collection failed: {str(e)}")
+                            f"❌ Google Trends API Failed\n   - Error: {error_reason}")
             return None
     
     async def _collect_web_intelligence(self, query: str, max_results: int, progress_callback, failed_apis: List[str]) -> Optional[Dict]:
-        """Collect web search data"""
+        """Collect web search data - REAL DATA ONLY, no mocks"""
         progress_callback(ResearchPhase.DATA_COLLECTION, "Web Intelligence Agent", AgentStatus.RUNNING,
                          "🌐 Gathering web intelligence...")
         try:
             if hasattr(self.apis["web_search"], 'available') and not self.apis["web_search"].available:
                 failed_apis.append("Web Search")
                 progress_callback(ResearchPhase.DATA_COLLECTION, "Web Intelligence Agent", AgentStatus.FAILED,
-                                "❌ Web Search not configured")
+                                "❌ Web Search API: Not configured - missing API credentials")
                 return None
             
             search_data = self.apis["web_search"].search(query, max_results=max_results)
-            if search_data:
-                progress_callback(ResearchPhase.DATA_COLLECTION, "Web Intelligence Agent", AgentStatus.COMPLETED,
-                                f"✅ Found {search_data['total_results']} web sources")
+            if search_data and search_data.get('total_results', 0) > 0:
+                # Check if this is real data (not mock) - check both top-level and in metrics
+                is_mock = (
+                    search_data.get('connector_status') == 'mock' or 
+                    search_data.get('data_source') == 'mock' or
+                    search_data.get('metrics', {}).get('data_source') == 'mock'
+                )
+                if is_mock:
+                    failed_apis.append("Web Search")
+                    progress_callback(ResearchPhase.DATA_COLLECTION, "Web Intelligence Agent", AgentStatus.FAILED,
+                                    "❌ Web Search API: No real data available (API returned mock data)")
+                    return None
+                
+                news_count = search_data.get('metrics', {}).get('news_articles', 0)
+                sample_title = ""
+                if search_data.get('results') and len(search_data['results']) > 0:
+                    sample_title = search_data['results'][0].get('title', '')[:60] + "..."
+                
+                detail_msg = f"""✅ Web Intelligence Agent
+   - Sources found: {search_data['total_results']}
+   - News articles: {news_count}
+   - Sample: "{sample_title}" """
+                progress_callback(ResearchPhase.DATA_COLLECTION, "Web Intelligence Agent", AgentStatus.COMPLETED, detail_msg)
                 return search_data
             
             failed_apis.append("Web Search")
+            progress_callback(ResearchPhase.DATA_COLLECTION, "Web Intelligence Agent", AgentStatus.FAILED,
+                            "❌ Web Search API: No results found for this query")
             return None
             
         except Exception as e:
             failed_apis.append("Web Search")
+            error_reason = self._parse_api_error(str(e), "Web Search")
             progress_callback(ResearchPhase.DATA_COLLECTION, "Web Intelligence Agent", AgentStatus.FAILED,
-                            f"⚠️ Web search failed: {str(e)}")
+                            f"❌ Web Search API Failed\n   - Error: {error_reason}")
             logger.error(f"Web search failed: {e}", exc_info=True)
             return None
     
+    def _parse_api_error(self, error_msg: str, api_name: str) -> str:
+        """Parse API error message into user-friendly reason"""
+        error_lower = error_msg.lower()
+        
+        if '401' in error_msg or 'unauthorized' in error_lower:
+            return "Authentication failed - API credentials may be invalid or expired"
+        elif '403' in error_msg or 'forbidden' in error_lower:
+            return "Access denied - API key may lack required permissions"
+        elif '429' in error_msg or 'rate limit' in error_lower or 'too many requests' in error_lower:
+            return "Rate limit exceeded - too many requests, try again later"
+        elif '500' in error_msg or '502' in error_msg or '503' in error_msg:
+            return f"{api_name} service temporarily unavailable"
+        elif 'timeout' in error_lower:
+            return "Request timed out - API server not responding"
+        elif 'connection' in error_lower:
+            return "Connection failed - network or API server issue"
+        elif 'not found' in error_lower or '404' in error_msg:
+            return "API endpoint not found - may be deprecated"
+        else:
+            # Return a truncated version of the original error
+            return error_msg[:100] + "..." if len(error_msg) > 100 else error_msg
+    
     async def _analyze_insights(self, question: str, all_data: Dict, progress_callback) -> Optional[str]:
-        """Analyze collected data for insights using LLM connector (Gemini) or Azure OpenAI"""
+        """Analyze collected data for insights using LLM connector (Gemini) or Azure OpenAI - NO MOCK FALLBACK"""
         
         # Try LLM Connector (Gemini) first
         if self.llm_connector:
@@ -448,14 +598,14 @@ Provide your analysis with:
                         logger.info(f"Gemini analysis successful ({len(analysis)} chars)")
                         return analysis
                 
-                # Fallback to Azure or mock if Gemini fails
+                # Fallback to Azure if Gemini fails
                 logger.warning(f"Gemini returned incomplete result: {result.status}")
                 progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
-                                f"⚠️ Gemini analysis incomplete, trying backup...")
+                                f"⚠️ Gemini analysis incomplete, trying Azure OpenAI...")
             except Exception as e:
                 logger.error(f"Gemini analysis failed: {e}", exc_info=True)
                 progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
-                                f"⚠️ Gemini failed ({str(e)}), trying backup...")
+                                f"⚠️ Gemini failed ({str(e)[:50]}), trying Azure OpenAI...")
         
         # Try Azure OpenAI as fallback
         if self.client:
@@ -477,17 +627,44 @@ Provide your analysis with:
                 return response.choices[0].message.content
                 
             except Exception as e:
-                logger.error(f"Azure OpenAI failed: {e}", exc_info=True)
-                progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
-                                f"⚠️ Azure analysis failed ({str(e)}), using mock analysis")
-        else:
-            progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
-                            "⚠️ No LLM configured, using mock analysis")
+                logger.error(f"Azure OpenAI analysis failed: {e}", exc_info=True)
+                progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.FAILED,
+                                f"❌ Azure OpenAI analysis failed: {str(e)[:50]}")
+                return None
         
-        return self._generate_mock_insights(question, all_data)
+        # No LLM available - cannot generate insights
+        progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.FAILED,
+                        "❌ No LLM available - cannot generate insights. Configure Gemini or Azure OpenAI API.")
+        logger.error("No LLM configured for analysis")
+        return None
     
-    async def _generate_report(self, question: str, all_data: Dict, insights: str, progress_callback) -> Optional[str]:
-        """Generate comprehensive research report using LLM connector (Gemini) or Azure OpenAI"""
+    async def _generate_report(self, question: str, all_data: Dict, insights: str, progress_callback, failed_apis: List[str] = None) -> Optional[str]:
+        """Generate comprehensive research report using LLM connector (Gemini) or Azure OpenAI - NO MOCK FALLBACK"""
+        
+        # Build disclaimer about data sources
+        successful_sources = []
+        if "social_media" in all_data:
+            if "twitter" in all_data["social_media"]:
+                successful_sources.append("Twitter/X")
+            if "tiktok" in all_data["social_media"]:
+                successful_sources.append("TikTok")
+            if "reddit" in all_data["social_media"]:
+                successful_sources.append("Reddit")
+        if "trends" in all_data:
+            successful_sources.append("Google Trends")
+        if "web_intelligence" in all_data:
+            successful_sources.append("Web Search")
+        
+        failed_sources = failed_apis or []
+        
+        # Create disclaimer text
+        disclaimer = f"""
+## DATA SOURCE DISCLAIMER
+**Data successfully collected from:** {', '.join(successful_sources) if successful_sources else 'None'}
+**APIs that failed or returned no data:** {', '.join(failed_sources) if failed_sources else 'None'}
+
+This report is based ONLY on the successfully collected data sources listed above. Conclusions may be limited by missing data from failed API sources.
+"""
         
         data_summary = self._create_analysis_prompt(question, all_data)
         
@@ -502,10 +679,13 @@ INSIGHTS FROM ANALYSIS:
 RAW DATA SUMMARY:
 {data_summary}
 
+IMPORTANT: This report should ONLY reference data from these sources: {', '.join(successful_sources)}
+The following APIs failed or returned no data and should NOT be included in the analysis: {', '.join(failed_sources) if failed_sources else 'None'}
+
 Create a client-ready report with these sections. Use EXACTLY these section headers:
 
 ## EXECUTIVE SUMMARY
-Write 2-3 paragraphs summarizing the key insights.
+Write 2-3 paragraphs summarizing the key insights. Only reference data sources that successfully returned data.
 
 ## KEY FINDINGS
 - Finding 1: Description
@@ -513,13 +693,13 @@ Write 2-3 paragraphs summarizing the key insights.
 (List 5-7 bullet points, each starting with "- ")
 
 ## PLATFORM INSIGHTS
-Describe insights from each platform (Twitter, Reddit, TikTok, Google Trends, Web).
+Describe insights from each platform that returned data. Skip platforms that failed.
 
 ## AUDIENCE BEHAVIOR
-Describe target audience demographics and behavior patterns.
+Describe target audience demographics and behavior patterns based on available data.
 
 ## SENTIMENT ANALYSIS
-Summarize the overall sentiment from the data.
+Summarize the overall sentiment from the available data.
 
 ## RECOMMENDATIONS
 - Recommendation 1: Specific action
@@ -528,6 +708,7 @@ Summarize the overall sentiment from the data.
 
 IMPORTANT: Use bullet points starting with "- " for KEY FINDINGS and RECOMMENDATIONS sections.
 Use professional, clear language suitable for marketing executives.
+Do NOT make up or assume data from sources that failed.
 """
         
         # Try LLM Connector (Gemini) first
@@ -541,13 +722,14 @@ Use professional, clear language suitable for marketing executives.
                 if result.status == ConnectorStatus.SUCCESS and result.data:
                     report = result.data[0].get("analysis", result.data[0].get("text", ""))
                     if report:
-                        return report
+                        # Append disclaimer to the report
+                        return report + "\n\n" + disclaimer
                 
                 progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
-                                f"⚠️ Gemini report incomplete, trying backup...")
+                                f"⚠️ Gemini report incomplete, trying Azure OpenAI...")
             except Exception as e:
                 progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
-                                f"⚠️ Gemini failed ({str(e)}), trying backup...")
+                                f"⚠️ Gemini failed ({str(e)[:50]}), trying Azure OpenAI...")
         
         # Try Azure OpenAI as fallback
         if self.client:
@@ -562,16 +744,20 @@ Use professional, clear language suitable for marketing executives.
                     max_tokens=2500
                 )
                 
-                return response.choices[0].message.content
+                report = response.choices[0].message.content
+                # Append disclaimer to the report
+                return report + "\n\n" + disclaimer
                 
             except Exception as e:
-                progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
-                                f"⚠️ Azure report failed ({str(e)}), using mock report")
-        else:
-            progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
-                            "⚠️ No LLM configured, using mock report")
+                progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.FAILED,
+                                f"❌ Azure OpenAI report failed: {str(e)[:50]}")
+                return None
         
-        return self._generate_mock_report(question, all_data, insights)
+        # No LLM available - cannot generate report
+        progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.FAILED,
+                        "❌ No LLM available - cannot generate report. Configure Gemini or Azure OpenAI API.")
+        logger.error("No LLM configured for report generation")
+        return None
     
     def _create_analysis_prompt(self, question: str, all_data: Dict) -> str:
         """Create analysis prompt from collected data"""
@@ -654,97 +840,6 @@ Use professional, clear language suitable for marketing executives.
             count += 1  # Trends counts as 1 data point
         
         return count
-    
-    def _generate_mock_insights(self, question: str, all_data: Dict) -> str:
-        """Generate mock insights when Azure OpenAI is not available"""
-        data_points = self._count_data_points(all_data)
-        platforms = []
-        if "social_media" in all_data:
-            platforms.extend([p.capitalize() for p in all_data["social_media"].keys()])
-        if "trends" in all_data:
-            platforms.append("Google Trends")
-        if "web_intelligence" in all_data:
-            platforms.append("Web Search")
-        
-        return f"""Based on analysis of {data_points} data points from {', '.join(platforms)}:
-
-KEY PATTERNS IDENTIFIED:
-- Strong engagement across multiple platforms indicating high relevance
-- Diverse audience segments showing different usage patterns
-- Clear behavioral trends emerging from the data
-- Sentiment largely positive with some notable concerns
-
-DEMOGRAPHIC INSIGHTS:
-- Primary audience shows active digital behavior
-- Cross-platform usage suggests integrated digital lifestyle
-- Geographic distribution indicates regional preferences
-- Age demographics align with platform-specific patterns
-
-BEHAVIORAL OBSERVATIONS:
-- Content consumption patterns vary by platform
-- Peak engagement times identified across sources
-- Mobile-first behavior dominates interactions
-- Community-driven discussions show organic growth"""
-
-    def _generate_mock_report(self, question: str, all_data: Dict, insights: str) -> str:
-        """Generate mock report when Azure OpenAI is not available"""
-        data_points = self._count_data_points(all_data)
-        
-        return f"""# MARKETING RESEARCH REPORT
-
-## EXECUTIVE SUMMARY
-This comprehensive research analyzed {data_points} data points to address the question: {question}
-
-The analysis reveals significant patterns in digital behavior and platform usage. Multiple data sources confirm strong engagement levels with distinct characteristics across different platforms. The findings indicate clear opportunities for targeted marketing strategies that align with observed user behaviors and preferences.
-
-## KEY FINDINGS
-- High engagement levels across all monitored platforms
-- Clear demographic segmentation with distinct preferences
-- Strong positive sentiment with actionable feedback
-- Mobile-first behavior dominates user interactions
-- Peak activity times identified for optimal reach
-- Cross-platform usage indicates integrated digital lifestyle
-- Community-driven content shows organic growth potential
-
-## PLATFORM INSIGHTS
-
-### Social Media Performance
-Active discussions with strong community engagement. Users demonstrate platform-specific behaviors that align with demographic expectations.
-
-### Search & Trends Analysis
-Search volume data indicates sustained interest with seasonal variations. Trending topics correlate with real-world events and cultural moments.
-
-### Web Intelligence
-Broad online presence with diverse content types. User-generated content shows authentic engagement and organic growth patterns.
-
-## AUDIENCE DEMOGRAPHICS & BEHAVIOR
-Primary audience consists of digitally-savvy users with mobile-first behaviors. Geographic distribution shows regional preferences with cultural variations. Age demographics align with platform-specific usage patterns.
-
-## SENTIMENT ANALYSIS
-Overall sentiment: POSITIVE (78%)
-- Enthusiastic discussions about core topics
-- Constructive feedback on pain points
-- Strong community support and advocacy
-- Some concerns about specific aspects requiring attention
-
-## ACTIONABLE RECOMMENDATIONS
-- Develop platform-specific content strategies tailored to observed behaviors
-- Optimize posting schedules based on identified peak engagement times
-- Create mobile-optimized experiences prioritizing mobile-first users
-- Leverage community sentiment for organic growth opportunities
-- Address identified pain points to improve user satisfaction
-- Implement cross-platform campaigns for integrated brand presence
-- Monitor trends continuously for timely market response
-
-## DATA SOURCES & METHODOLOGY
-Research conducted using multi-source data collection:
-- Social media monitoring across major platforms
-- Search trends and volume analysis
-- Web intelligence gathering from diverse sources
-- Real-time sentiment analysis
-- Demographic data compilation
-
-Note: This report uses mock analysis. For production use, configure Azure OpenAI for AI-powered insights."""
 
     def _parse_report_sections(self, report: str) -> tuple:
         """Parse report into sections for multi-message display"""

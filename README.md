@@ -97,7 +97,10 @@ npm run dev
 - ✅ Real API connectors (Twitter, Reddit, Google Trends, Web Search)
 - ✅ AI-powered analysis with Google Gemini 2.0 Flash
 - ✅ Progress tracking with 18+ status updates per research
-- ✅ Graceful error handling and fallbacks to mock data
+- ✅ Conversational AI for chat (greetings, capabilities, research intent detection)
+- ✅ **No mock data** - Real API data only with detailed error messages
+- ✅ **Detailed API visibility** - Each API shows results inline (posts found, sentiment, samples)
+- ✅ **Data source disclaimer** - Reports clearly state which APIs were used
 
 ### Frontend (100%)
 - ✅ TypeScript API client with full type safety (540 lines)
