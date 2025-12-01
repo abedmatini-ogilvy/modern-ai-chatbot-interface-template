@@ -32,7 +32,8 @@ Transform marketing research by automating multi-source data collection and AI-p
 - **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS, Radix UI
 - **Backend**: FastAPI, Python asyncio, Pydantic validation
 - **Architecture**: REST API with polling, in-memory session management
-- **AI Integration**: Azure OpenAI (GPT-4) ready for production
+- **AI Integration**: Google Gemini 2.0 Flash (primary), Azure OpenAI (fallback)
+- **Real APIs**: Twitter, Reddit, Google Trends, SerpAPI Web Search
 
 ## 🚀 Quick Start
 
@@ -93,10 +94,10 @@ npm run dev
 - ✅ 7 REST API endpoints (start, status, result, questions, sessions, delete, statistics)
 - ✅ Multi-agent research orchestration
 - ✅ Session management with automatic cleanup (60min timeout)
-- ✅ Mock data connectors (Twitter, TikTok, Reddit, Trends, Web)
-- ✅ Mock AI analysis and report generation
+- ✅ Real API connectors (Twitter, Reddit, Google Trends, Web Search)
+- ✅ AI-powered analysis with Google Gemini 2.0 Flash
 - ✅ Progress tracking with 18+ status updates per research
-- ✅ Graceful error handling and fallbacks
+- ✅ Graceful error handling and fallbacks to mock data
 
 ### Frontend (100%)
 - ✅ TypeScript API client with full type safety (540 lines)
@@ -116,16 +117,18 @@ npm run dev
 
 ## 🔄 What's Left (Optional Enhancements)
 
-### Step 10: Real API Integration
-- [ ] Configure Azure OpenAI for AI-powered analysis
-- [ ] Set up Twitter API (tweepy)
-- [ ] Set up Reddit API (praw)
-- [ ] Set up TikTok API
-- [ ] Configure Google Trends (pytrends)
-- [ ] Configure Bing Search API
-- [ ] Create `.env` setup guide
+### Step 10: Real API Integration ✅ COMPLETE
+- ✅ Google Gemini 2.0 Flash for AI-powered analysis
+- ✅ Twitter API (tweepy) - working with rate limit handling
+- ✅ Reddit API (praw) - fully functional
+- ✅ Google Trends (pytrends) - FREE, no API key needed!
+- ✅ SerpAPI Web Search - working
+- ⚠️ TikTok API - requires Creative Center approval (falls back to mock)
+- ✅ Modular connector architecture with graceful degradation
+- ✅ `.env.template` setup guide created
 
 ### Future Enhancements
+- [ ] Frontend LLM selector dropdown (choose Gemini/Azure/Ollama)
 - [ ] Database persistence (PostgreSQL/Redis)
 - [ ] User authentication and authorization
 - [ ] Download reports (PDF/Markdown)
@@ -148,9 +151,20 @@ npm run dev
 │   ├── main.py              # Application entry point
 │   ├── config.py            # Configuration management
 │   ├── requirements.txt     # Python dependencies
+│   ├── api_connectors_mock.py   # Mock data fallbacks
+│   ├── api_connectors_real.py   # Real API adapter layer
 │   ├── models/              # Pydantic models
 │   ├── routers/             # API route handlers
 │   ├── services/            # Business logic
+│   ├── connectors/          # Modular API connectors
+│   │   ├── base_connector.py       # Abstract base class
+│   │   ├── twitter_connector.py    # Twitter/X API
+│   │   ├── reddit_connector.py     # Reddit via PRAW
+│   │   ├── google_trends_connector.py  # pytrends (FREE)
+│   │   ├── web_search_connector.py # SerpAPI + fallbacks
+│   │   ├── tiktok_connector.py     # TikTok Creative Center
+│   │   ├── llm_connector.py        # Multi-provider LLM
+│   │   └── tests/           # Connector unit tests
 │   └── docs/                # Documentation
 ├── components/               # React components
 │   ├── AIAssistantUI.jsx    # Main chat interface
@@ -171,14 +185,41 @@ npm run dev
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-#### Backend (optional `.env`)
+#### Backend (`.env` - copy from `.env.template`)
 ```bash
-# Azure OpenAI (for production)
+# ===================
+# LLM Providers (Primary: Gemini)
+# ===================
+GOOGLE_AI_API_KEY=your-gemini-api-key
+
+# Azure OpenAI (fallback)
 AZURE_AI_API_KEY=your-key-here
 AZURE_AI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_AI_MODEL_NAME=gpt-4
 
+# ===================
+# Social Media APIs
+# ===================
+# Twitter/X API
+TWITTER_API_KEY=your-twitter-api-key
+TWITTER_API_SECRET=your-twitter-api-secret
+TWITTER_BEARER_TOKEN=your-bearer-token
+TWITTER_ACCESS_TOKEN=your-access-token
+TWITTER_ACCESS_SECRET=your-access-secret
+
+# Reddit API
+REDDIT_CLIENT_ID=your-reddit-client-id
+REDDIT_CLIENT_SECRET=your-reddit-client-secret
+REDDIT_USER_AGENT=TrendResearchBot/1.0
+
+# ===================
+# Web Search
+# ===================
+SERPAPI_API_KEY=your-serpapi-key
+
+# ===================
 # Server Configuration
+# ===================
 DEBUG=true
 HOST=0.0.0.0
 PORT=8000
@@ -187,6 +228,17 @@ PORT=8000
 SESSION_TIMEOUT_MINUTES=60
 MAX_CONCURRENT_SESSIONS=100
 ```
+
+### API Free Tier Limits
+
+| Service | Free Tier | Notes |
+|---------|-----------|-------|
+| Google Gemini | 60 req/min, 1M tokens/day | Primary LLM |
+| Google Trends | **Unlimited** | No API key needed! |
+| Reddit | 60 req/min | Very generous |
+| Twitter | 10K tweets/month | Rate limited |
+| SerpAPI | 100 searches/month | Web search |
+| TikTok | Requires approval | Falls back to mock |
 
 ## 🧪 Testing
 
@@ -271,6 +323,6 @@ This project is part of a learning exercise and demo application.
 
 ---
 
-**Status**: ✅ Core functionality complete and working  
-**Current Version**: v1.0.0 (Production-ready with mock data)  
-**Next Milestone**: Real API integration (Step 10)
+**Status**: ✅ Core functionality complete with real API integration  
+**Current Version**: v1.1.0 (Real APIs + Gemini AI)  
+**Completed**: Step 10 Real API Integration
