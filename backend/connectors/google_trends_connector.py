@@ -111,12 +111,11 @@ class GoogleTrendsConnector(BaseConnector):
         Get or create pytrends client.
         
         Create fresh client to avoid session/cookie issues.
+        Note: Removed retries/backoff_factor params due to urllib3 2.x compatibility issues.
         """
         return TrendReq(
             hl=self.hl,
-            tz=self.tz,
-            retries=self.retries,
-            backoff_factor=0.5
+            tz=self.tz
         )
     
     async def fetch(self, query: str, **kwargs) -> ConnectorResult:
