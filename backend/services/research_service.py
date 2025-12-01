@@ -6,17 +6,21 @@ and makes it reusable as a Python service without UI dependencies.
 
 It orchestrates:
 - Phase 1: Parallel data collection from 5 platforms
-- Phase 2: Sequential analysis and report generation
+- Phase 2: Sequential analysis and report generation (using Gemini or other LLMs)
 - Progress tracking and updates
 - Error handling and graceful degradation
 """
 
 import asyncio
 import time
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Callable
 from openai import AzureOpenAI, OpenAI
 import os
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 from models.research_models import (
     ResearchPhase,
@@ -33,6 +37,13 @@ try:
     USE_REAL_APIS = True
 except ImportError:
     USE_REAL_APIS = False
+
+# Import LLM connector for analysis
+try:
+    from connectors import get_connector, ConnectorStatus
+    LLM_CONNECTOR_AVAILABLE = True
+except ImportError:
+    LLM_CONNECTOR_AVAILABLE = False
 
 
 class ResearchService:
@@ -91,6 +102,20 @@ class ResearchService:
         self.model_name = os.getenv("AZURE_AI_MODEL_NAME", "gpt-4")
         
         self.client = self._initialize_openai_client()
+        
+        # Initialize LLM connector (Gemini, etc.) as primary analysis engine
+        self.llm_connector = None
+        if LLM_CONNECTOR_AVAILABLE:
+            try:
+                self.llm_connector = get_connector("llm")
+                if self.llm_connector.is_configured():
+                    print("✅ LLM Connector (Gemini) configured for analysis")
+                else:
+                    print("⚠️ LLM Connector not configured, will use Azure OpenAI or mock")
+                    self.llm_connector = None
+            except Exception as e:
+                print(f"⚠️ LLM Connector initialization failed: {e}")
+                self.llm_connector = None
         
         # Try real APIs first, fallback to mock if not available
         if USE_REAL_APIS:
@@ -309,6 +334,7 @@ class ResearchService:
             failed_apis.append("TikTok")
             progress_callback(ResearchPhase.DATA_COLLECTION, "TikTok Intelligence Agent", AgentStatus.FAILED,
                             f"⚠️ TikTok collection failed: {str(e)}")
+            logger.error(f"TikTok collection failed: {e}", exc_info=True)
         
         # Reddit
         progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.RUNNING,
@@ -318,16 +344,22 @@ class ResearchService:
                 failed_apis.append("Reddit")
                 progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.FAILED,
                                 "❌ Reddit API not configured")
+                logger.warning("Reddit API not configured/available")
             else:
+                logger.info(f"Calling Reddit API with query: {query}")
                 reddit_data = self.apis["reddit"].search_posts(query, max_results=max_results)
+                logger.info(f"Reddit returned: {reddit_data.get('total_results', 0) if reddit_data else 0} results")
                 if reddit_data:
                     results["reddit"] = reddit_data
                     progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.COMPLETED,
                                     f"✅ Found {reddit_data['total_results']} posts")
+                else:
+                    logger.warning("Reddit returned empty/None data")
         except Exception as e:
             failed_apis.append("Reddit")
             progress_callback(ResearchPhase.DATA_COLLECTION, "Reddit Intelligence Agent", AgentStatus.FAILED,
                             f"⚠️ Reddit collection failed: {str(e)}")
+            logger.error(f"Reddit collection failed: {e}", exc_info=True)
         
         return results
     
@@ -381,46 +413,85 @@ class ResearchService:
             failed_apis.append("Web Search")
             progress_callback(ResearchPhase.DATA_COLLECTION, "Web Intelligence Agent", AgentStatus.FAILED,
                             f"⚠️ Web search failed: {str(e)}")
+            logger.error(f"Web search failed: {e}", exc_info=True)
             return None
     
     async def _analyze_insights(self, question: str, all_data: Dict, progress_callback) -> Optional[str]:
-        """Analyze collected data for insights"""
-        if not self.client:
-            progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
-                            "⚠️ Azure OpenAI not configured, using mock analysis")
-            return self._generate_mock_insights(question, all_data)
+        """Analyze collected data for insights using LLM connector (Gemini) or Azure OpenAI"""
         
-        try:
-            data_summary = self._create_analysis_prompt(question, all_data)
-            
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are an Insight Analyst Agent for a marketing agency. Synthesize data from multiple sources to identify patterns, trends, and actionable insights."},
-                    {"role": "user", "content": data_summary}
-                ],
-                temperature=0.7,
-                max_tokens=1500
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
+        # Try LLM Connector (Gemini) first
+        if self.llm_connector:
+            try:
+                progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
+                                "🤖 Analyzing with Gemini AI...")
+                logger.info("Starting analysis with LLM connector (Gemini)")
+                
+                data_summary = self._create_analysis_prompt(question, all_data)
+                prompt = f"""You are an Insight Analyst Agent for a marketing agency. 
+Synthesize data from multiple sources to identify patterns, trends, and actionable insights.
+
+{data_summary}
+
+Provide your analysis with:
+1. Key patterns and trends identified
+2. Audience behavior insights
+3. Platform-specific findings
+4. Market opportunities
+5. Strategic implications for marketing"""
+                
+                result = await self.llm_connector.generate(prompt)
+                logger.info(f"LLM connector returned status: {result.status}")
+                
+                if result.status == ConnectorStatus.SUCCESS and result.data:
+                    analysis = result.data[0].get("analysis", result.data[0].get("text", ""))
+                    if analysis:
+                        logger.info(f"Gemini analysis successful ({len(analysis)} chars)")
+                        return analysis
+                
+                # Fallback to Azure or mock if Gemini fails
+                logger.warning(f"Gemini returned incomplete result: {result.status}")
+                progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
+                                f"⚠️ Gemini analysis incomplete, trying backup...")
+            except Exception as e:
+                logger.error(f"Gemini analysis failed: {e}", exc_info=True)
+                progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
+                                f"⚠️ Gemini failed ({str(e)}), trying backup...")
+        
+        # Try Azure OpenAI as fallback
+        if self.client:
+            try:
+                logger.info("Trying Azure OpenAI for analysis")
+                data_summary = self._create_analysis_prompt(question, all_data)
+                
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": "You are an Insight Analyst Agent for a marketing agency. Synthesize data from multiple sources to identify patterns, trends, and actionable insights."},
+                        {"role": "user", "content": data_summary}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1500
+                )
+                
+                logger.info("Azure OpenAI analysis successful")
+                return response.choices[0].message.content
+                
+            except Exception as e:
+                logger.error(f"Azure OpenAI failed: {e}", exc_info=True)
+                progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
+                                f"⚠️ Azure analysis failed ({str(e)}), using mock analysis")
+        else:
             progress_callback(ResearchPhase.ANALYSIS, "Insight Analyst Agent", AgentStatus.RUNNING,
-                            f"⚠️ Analysis failed ({str(e)}), using mock analysis")
-            return self._generate_mock_insights(question, all_data)
+                            "⚠️ No LLM configured, using mock analysis")
+        
+        return self._generate_mock_insights(question, all_data)
     
     async def _generate_report(self, question: str, all_data: Dict, insights: str, progress_callback) -> Optional[str]:
-        """Generate comprehensive research report"""
-        if not self.client:
-            progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
-                            "⚠️ Azure OpenAI not configured, using mock report")
-            return self._generate_mock_report(question, all_data, insights)
+        """Generate comprehensive research report using LLM connector (Gemini) or Azure OpenAI"""
         
-        try:
-            data_summary = self._create_analysis_prompt(question, all_data)
-            
-            report_prompt = f"""
+        data_summary = self._create_analysis_prompt(question, all_data)
+        
+        report_prompt = f"""
 Create a comprehensive marketing research report for the following question:
 
 {question}
@@ -442,23 +513,49 @@ Create a client-ready report with these sections:
 
 Use professional, clear language suitable for marketing executives.
 """
-            
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are a Report Generator Agent for a marketing agency. Create comprehensive, client-ready research reports."},
-                    {"role": "user", "content": report_prompt}
-                ],
-                temperature=0.7,
-                max_tokens=2500
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
+        
+        # Try LLM Connector (Gemini) first
+        if self.llm_connector:
+            try:
+                progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
+                                "🤖 Generating report with Gemini AI...")
+                
+                result = await self.llm_connector.generate(report_prompt)
+                
+                if result.status == ConnectorStatus.SUCCESS and result.data:
+                    report = result.data[0].get("analysis", result.data[0].get("text", ""))
+                    if report:
+                        return report
+                
+                progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
+                                f"⚠️ Gemini report incomplete, trying backup...")
+            except Exception as e:
+                progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
+                                f"⚠️ Gemini failed ({str(e)}), trying backup...")
+        
+        # Try Azure OpenAI as fallback
+        if self.client:
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a Report Generator Agent for a marketing agency. Create comprehensive, client-ready research reports."},
+                        {"role": "user", "content": report_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=2500
+                )
+                
+                return response.choices[0].message.content
+                
+            except Exception as e:
+                progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
+                                f"⚠️ Azure report failed ({str(e)}), using mock report")
+        else:
             progress_callback(ResearchPhase.REPORT_GENERATION, "Report Generator Agent", AgentStatus.RUNNING,
-                            f"⚠️ Report generation failed ({str(e)}), using mock report")
-            return self._generate_mock_report(question, all_data, insights)
+                            "⚠️ No LLM configured, using mock report")
+        
+        return self._generate_mock_report(question, all_data, insights)
     
     def _create_analysis_prompt(self, question: str, all_data: Dict) -> str:
         """Create analysis prompt from collected data"""

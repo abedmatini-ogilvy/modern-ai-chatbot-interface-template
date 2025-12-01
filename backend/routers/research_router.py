@@ -218,7 +218,8 @@ async def get_research_status(session_id: str):
     estimated_completion = None
     if session.phase not in [ResearchPhase.COMPLETED, ResearchPhase.FAILED]:
         # Assume ~30 seconds average completion time
-        estimated_completion = session.created_at + settings.RESEARCH_TIMEOUT_SECONDS / 2
+        from datetime import timedelta
+        estimated_completion = session.created_at + timedelta(seconds=settings.RESEARCH_TIMEOUT_SECONDS / 2)
     
     return ResearchStatusResponse(
         session_id=session_id,
