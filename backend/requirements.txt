@@ -7,3 +7,29 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
 python-multipart>=0.0.6
+
+# Real API Connectors (Step 10)
+# Twitter/X
+tweepy>=4.14.0
+
+# Reddit
+praw>=7.7.0
+
+# Google Trends (no API key required!)
+pytrends>=4.9.0
+
+# Web Search
+google-search-results>=2.4.2  # SerpAPI
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+
+# LLM Providers
+google-generativeai>=0.3.0   # Google Gemini
+anthropic>=0.7.0             # Anthropic Claude
+
+# Data processing
+pandas>=2.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
