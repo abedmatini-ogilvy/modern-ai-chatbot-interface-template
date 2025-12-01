@@ -417,3 +417,88 @@ export async function checkHealth(): Promise<{
 }> {
   return apiFetch<any>("/health");
 }
+
+// ============================================================================
+// Chat API Types
+// ============================================================================
+
+export enum ChatAction {
+  RESPOND = "respond",
+  RESEARCH = "research",
+  CLARIFY = "clarify"
+}
+
+export interface ChatRequest {
+  message: string;
+  conversation_id: string;
+}
+
+export interface ChatResponse {
+  action: ChatAction;
+  message: string;
+  research_question: string | null;
+  search_query: string | null;
+  timestamp: string;
+}
+
+// ============================================================================
+// Chat API Functions
+// ============================================================================
+
+/**
+ * Send a chat message to the AI assistant
+ * 
+ * The AI will analyze the message and return one of three actions:
+ * - "respond": Normal conversational response
+ * - "research": User wants trend research (includes research_question and search_query)
+ * - "clarify": User's request is unclear, AI asks for clarification
+ * 
+ * @param request - Chat message and conversation ID
+ * @returns Promise with AI response and action
+ * 
+ * @example
+ * const response = await sendChatMessage({
+ *   message: "Hi there!",
+ *   conversation_id: "conv-123"
+ * });
+ * 
+ * if (response.action === ChatAction.RESEARCH) {
+ *   // Start research with response.research_question and response.search_query
+ * }
+ */
+export async function sendChatMessage(
+  request: ChatRequest
+): Promise<ChatResponse> {
+  return apiFetch<ChatResponse>("/api/chat", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Clear chat history for a conversation
+ * 
+ * @param conversationId - The conversation to clear
+ * @returns Promise with success status
+ */
+export async function clearChatHistory(
+  conversationId: string
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch<{ success: boolean; message: string }>(
+    `/api/chat/${conversationId}`,
+    { method: "DELETE" }
+  );
+}
+
+/**
+ * Check chat service health
+ * 
+ * @returns Promise with chat service status
+ */
+export async function checkChatHealth(): Promise<{
+  status: string;
+  llm_available: boolean;
+  active_conversations: number;
+}> {
+  return apiFetch<any>("/api/chat/health");
+}

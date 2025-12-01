@@ -9,7 +9,7 @@ import GhostIconButton from "./GhostIconButton"
 import ThemeToggle from "./ThemeToggle"
 import { INITIAL_CONVERSATIONS, INITIAL_FOLDERS } from "./mockData"
 import { useResearchQuestions, useResearchSession } from "@/lib/use-research"
-import { ResearchPhase } from "@/lib/api-client"
+import { ResearchPhase, sendChatMessage, ChatAction } from "@/lib/api-client"
 
 export default function AIAssistantUI() {
   const [theme, setTheme] = useState(() => {
@@ -372,41 +372,27 @@ export default function AIAssistantUI() {
     setIsThinking(true)
     setThinkingConvId(convId)
 
-    // Check if this looks like a research question
-    const isResearchQuestion = content.toLowerCase().includes('trend') || 
-                              content.toLowerCase().includes('research') ||
-                              content.includes('?')
-    
-    if (isResearchQuestion && apiQuestions && apiQuestions.length > 0) {
-      // Start actual research
-      setSelectedId(convId)
-      try {
-        await startResearch({
-          question: content,
-          search_query: content.split(/[?.!]/)[0].trim().slice(0, 100),
-          conversation_id: convId,
-        })
-      } catch (error) {
-        console.error('Research failed:', error)
-        setIsThinking(false)
-        setThinkingConvId(null)
-      }
-    } else {
-      // Default mock response for non-research messages
-      const currentConvId = convId
-      setTimeout(() => {
-        setIsThinking(false)
-        setThinkingConvId(null)
+    try {
+      // Send message to chat API (Gemini)
+      const chatResponse = await sendChatMessage({
+        message: content,
+        conversation_id: convId,
+      })
+
+      console.log('Chat response:', chatResponse)
+
+      if (chatResponse.action === 'research') {
+        // Gemini detected a research request - start research agents
+        const asstMsg = {
+          id: Math.random().toString(36).slice(2),
+          role: "assistant",
+          content: chatResponse.message,
+          createdAt: new Date().toISOString(),
+        }
+        
         setConversations((prev) =>
           prev.map((c) => {
-            if (c.id !== currentConvId) return c
-            const ack = `Got it — I'll help with that.`
-            const asstMsg = {
-              id: Math.random().toString(36).slice(2),
-              role: "assistant",
-              content: ack,
-              createdAt: new Date().toISOString(),
-            }
+            if (c.id !== convId) return c
             const msgs = [...(c.messages || []), asstMsg]
             return {
               ...c,
@@ -417,7 +403,66 @@ export default function AIAssistantUI() {
             }
           }),
         )
-      }, 1000)
+
+        // Start research with Gemini's refined question and search query
+        activeResearchConvIdRef.current = convId
+        await startResearch({
+          question: chatResponse.research_question || content,
+          search_query: chatResponse.search_query || content.split(/[?.!]/)[0].trim().slice(0, 100),
+          conversation_id: convId,
+        })
+      } else {
+        // Normal conversation (respond or clarify)
+        setIsThinking(false)
+        setThinkingConvId(null)
+        
+        const asstMsg = {
+          id: Math.random().toString(36).slice(2),
+          role: "assistant",
+          content: chatResponse.message,
+          createdAt: new Date().toISOString(),
+        }
+        
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== convId) return c
+            const msgs = [...(c.messages || []), asstMsg]
+            return {
+              ...c,
+              messages: msgs,
+              updatedAt: new Date().toISOString(),
+              messageCount: msgs.length,
+              preview: asstMsg.content.slice(0, 80),
+            }
+          }),
+        )
+      }
+    } catch (error) {
+      console.error('Chat/Research failed:', error)
+      setIsThinking(false)
+      setThinkingConvId(null)
+      
+      // Show error message
+      const errorMsg = {
+        id: Math.random().toString(36).slice(2),
+        role: "assistant",
+        content: "Sorry, I'm having trouble connecting right now. Please try again.",
+        createdAt: new Date().toISOString(),
+        isError: true,
+      }
+      
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c
+          const msgs = [...(c.messages || []), errorMsg]
+          return {
+            ...c,
+            messages: msgs,
+            updatedAt: new Date().toISOString(),
+            messageCount: msgs.length,
+          }
+        }),
+      )
     }
   }
 

@@ -31,6 +31,7 @@ sys.path.insert(0, str(backend_dir))
 
 from config import settings
 from routers.research_router import router as research_router
+from routers.chat_router import router as chat_router
 from services.session_manager import get_session_manager
 
 # Create FastAPI application
@@ -54,6 +55,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(research_router)
+app.include_router(chat_router)
 
 
 # ============================================================================
@@ -160,6 +162,7 @@ async def startup_event():
     print(f"📡 Server: {settings.HOST}:{settings.PORT}")
     print(f"🔧 Debug Mode: {settings.DEBUG}")
     print(f"🤖 Azure OpenAI: {'✅ Configured' if settings.azure_openai_configured else '❌ Not Configured'}")
+    print(f"💬 Chat API: ✅ Enabled (Gemini)")
     print(f"📚 API Docs: http://{settings.HOST}:{settings.PORT}/docs")
     
     # Start session cleanup task

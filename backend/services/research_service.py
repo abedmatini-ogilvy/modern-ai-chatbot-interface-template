@@ -502,15 +502,31 @@ INSIGHTS FROM ANALYSIS:
 RAW DATA SUMMARY:
 {data_summary}
 
-Create a client-ready report with these sections:
-1. EXECUTIVE SUMMARY (2-3 paragraphs)
-2. KEY FINDINGS (5-7 bullet points)
-3. PLATFORM INSIGHTS (for each available platform)
-4. AUDIENCE DEMOGRAPHICS & BEHAVIOR
-5. SENTIMENT ANALYSIS
-6. ACTIONABLE RECOMMENDATIONS (5-7 specific actions)
-7. DATA SOURCES & METHODOLOGY
+Create a client-ready report with these sections. Use EXACTLY these section headers:
 
+## EXECUTIVE SUMMARY
+Write 2-3 paragraphs summarizing the key insights.
+
+## KEY FINDINGS
+- Finding 1: Description
+- Finding 2: Description
+(List 5-7 bullet points, each starting with "- ")
+
+## PLATFORM INSIGHTS
+Describe insights from each platform (Twitter, Reddit, TikTok, Google Trends, Web).
+
+## AUDIENCE BEHAVIOR
+Describe target audience demographics and behavior patterns.
+
+## SENTIMENT ANALYSIS
+Summarize the overall sentiment from the data.
+
+## RECOMMENDATIONS
+- Recommendation 1: Specific action
+- Recommendation 2: Specific action
+(List 5-7 bullet points, each starting with "- ")
+
+IMPORTANT: Use bullet points starting with "- " for KEY FINDINGS and RECOMMENDATIONS sections.
 Use professional, clear language suitable for marketing executives.
 """
         
@@ -732,7 +748,8 @@ Note: This report uses mock analysis. For production use, configure Azure OpenAI
 
     def _parse_report_sections(self, report: str) -> tuple:
         """Parse report into sections for multi-message display"""
-        # Simple parsing - in production, use more sophisticated parsing
+        import re
+        
         executive_summary = None
         key_findings = []
         recommendations = []
@@ -740,33 +757,73 @@ Note: This report uses mock analysis. For production use, configure Azure OpenAI
         lines = report.split('\n')
         current_section = None
         
+        # Pattern for numbered or bulleted items: "1." or "- " or "* " or "• "
+        list_item_pattern = re.compile(r'^(\d+[\.\)]\s*|\s*[-*•]\s*)')
+        
         for line in lines:
-            line_upper = line.strip().upper()
+            line_stripped = line.strip()
+            line_upper = line_stripped.upper()
             
+            # Detect section headers
             if 'EXECUTIVE SUMMARY' in line_upper:
                 current_section = 'summary'
                 continue
-            elif 'KEY FINDINGS' in line_upper:
+            elif 'KEY FINDINGS' in line_upper or 'KEY INSIGHTS' in line_upper:
                 current_section = 'findings'
                 continue
-            elif 'RECOMMENDATIONS' in line_upper or 'ACTIONABLE RECOMMENDATIONS' in line_upper:
+            elif 'RECOMMENDATION' in line_upper or 'ACTIONABLE' in line_upper:
                 current_section = 'recommendations'
                 continue
-            elif line.startswith('#') or line.startswith('##'):
+            elif 'PLATFORM INSIGHTS' in line_upper or 'AUDIENCE' in line_upper or 'SENTIMENT' in line_upper or 'METHODOLOGY' in line_upper or 'DATA SOURCES' in line_upper:
+                # These are other sections we don't extract separately
+                current_section = 'other'
+                continue
+            elif line_stripped.startswith('#'):
+                # Any markdown header resets the section
                 current_section = None
                 continue
             
-            if current_section == 'summary' and line.strip():
+            # Skip empty lines
+            if not line_stripped:
+                continue
+            
+            # Process content based on current section
+            if current_section == 'summary':
+                # Executive summary is paragraph text
                 if executive_summary is None:
-                    executive_summary = line.strip()
+                    executive_summary = line_stripped
                 else:
-                    executive_summary += ' ' + line.strip()
-            elif current_section == 'findings' and line.strip().startswith(('-', '*', '•')):
-                key_findings.append(line.strip().lstrip('-*•').strip())
-            elif current_section == 'recommendations' and line.strip().startswith(('-', '*', '•')):
-                recommendations.append(line.strip().lstrip('-*•').strip())
+                    executive_summary += ' ' + line_stripped
+                    
+            elif current_section == 'findings':
+                # Key findings are list items
+                match = list_item_pattern.match(line_stripped)
+                if match:
+                    # Remove the number/bullet prefix
+                    finding = line_stripped[match.end():].strip()
+                    # Skip if it looks like a sub-section header
+                    if finding and not finding.endswith(':') and len(finding) > 10:
+                        key_findings.append(finding)
+                elif line_stripped.startswith('**') and line_stripped.endswith('**'):
+                    # Bold text might be a finding
+                    finding = line_stripped.strip('*').strip()
+                    if finding and len(finding) > 10:
+                        key_findings.append(finding)
+                        
+            elif current_section == 'recommendations':
+                # Recommendations are list items
+                match = list_item_pattern.match(line_stripped)
+                if match:
+                    rec = line_stripped[match.end():].strip()
+                    # Skip sub-section headers and very short items
+                    if rec and not rec.endswith(':') and len(rec) > 10:
+                        recommendations.append(rec)
         
-        return executive_summary, key_findings if key_findings else None, recommendations if recommendations else None
+        # Limit to reasonable counts
+        key_findings = key_findings[:10] if key_findings else None
+        recommendations = recommendations[:10] if recommendations else None
+        
+        return executive_summary, key_findings, recommendations
     
     @classmethod
     def get_research_questions(cls) -> List[Dict[str, Any]]:
